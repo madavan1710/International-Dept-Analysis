@@ -1,0 +1,394 @@
+--TABLE 1: COUNTRIES
+CREATE TABLE countries (
+    country_code VARCHAR(10) PRIMARY KEY,
+    country_name VARCHAR(150)
+);
+
+--TABLE 2: INDICATORS
+CREATE TABLE indicators (
+    series_code VARCHAR(50) PRIMARY KEY,
+    series_name TEXT
+);
+
+--TABLE 3: DEBT DATA
+CREATE TABLE debt_data (
+    debt_id BIGSERIAL PRIMARY KEY,
+
+    country_code VARCHAR(10),
+    series_code VARCHAR(50),
+
+    year INTEGER,
+    debt_value NUMERIC,
+
+    counterpart_area_name VARCHAR(150),
+    counterpart_area_code VARCHAR(20),
+
+    FOREIGN KEY (country_code)
+        REFERENCES countries(country_code),
+
+    FOREIGN KEY (series_code)
+        REFERENCES indicators(series_code)
+);
+
+-- CREATED INDEXES
+CREATE INDEX idx_debt_country
+ON debt_data(country_code);
+
+CREATE INDEX idx_debt_series
+ON debt_data(series_code);
+
+CREATE INDEX idx_debt_year
+ON debt_data(year);
+
+-- ANALYTICAL VIEW
+-- Combines country, indicator and debt information
+-- into a single reporting layer for reporting and analysis.
+
+CREATE OR REPLACE VIEW vw_debt_analysis AS
+SELECT
+    d.country_code,
+    c.country_name,
+    d.series_code,
+    i.series_name,
+    d.year,
+    d.debt_value
+FROM debt_data d
+JOIN countries c
+    ON d.country_code = c.country_code
+JOIN indicators i
+    ON d.series_code = i.series_code;
+
+-- COUNTRY-ONLY VIEW
+-- Removes regional and income-group aggregates
+-- to ensure accurate country-level analysis.
+
+CREATE VIEW vw_country_debt AS
+SELECT *
+FROM vw_debt_analysis
+WHERE country_name NOT IN
+(
+    'East Asia & Pacific (excluding high income)',
+    'Europe & Central Asia (excluding high income)',
+    'Latin America & Caribbean (excluding high income)',
+    'Low & middle income',
+    'Low income',
+    'Lower middle income',
+    'Middle income',
+    'Upper middle income',
+    'Sub-Saharan Africa (excluding high income)',
+    'Middle East, North Africa, Afghanistan & Pakistan (excluding high income)',
+    'IDA only',
+    'IDA total',
+    'Least developed countries: UN classification',
+    'South Asia'
+);
+
+-- CREATED QUERIES
+--QUERY 1: Retrieve all distinct country names
+
+SELECT DISTINCT country_name
+FROM vw_country_debt
+ORDER BY country_name;
+
+--QUERY 2: Count total number of countries
+
+SELECT COUNT(DISTINCT country_name) AS total_countries
+FROM vw_country_debt;
+
+--QUERY 3: Find total number of indicators
+
+SELECT COUNT(DISTINCT series_name) AS total_indicators
+FROM vw_country_debt;
+
+--QUERY 4: Display first 10 records
+
+SELECT *
+FROM vw_country_debt
+LIMIT 10;
+
+--QUERY 5: Calculate total global debt
+
+SELECT ROUND(SUM(debt_value)::NUMERIC,2) AS total_global_debt
+FROM vw_country_debt;
+
+--QUERY 6: List all unique indicator names
+
+SELECT DISTINCT series_name
+FROM vw_country_debt
+ORDER BY series_name;
+
+--QUERY 7: Find number of records for each country
+
+SELECT
+    country_name,
+    COUNT(*) AS total_records
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY total_records DESC;
+
+--QUERY 8: Records with debt greater than 1 Billion USD
+
+SELECT *
+FROM vw_country_debt
+WHERE debt_value > 1000000000;
+
+--QUERY 9: Minimum, Maximum and Average debt
+
+SELECT
+    MIN(debt_value) AS min_debt,
+    MAX(debt_value) AS max_debt,
+    ROUND(AVG(debt_value)::NUMERIC,2) AS avg_debt
+FROM vw_country_debt;
+
+--QUERY 10: Count total records
+
+SELECT COUNT(*) AS total_records
+FROM vw_country_debt;
+
+--QUERY 11: Total debt for each country
+
+SELECT
+    country_name,
+    ROUND(SUM(debt_value)::NUMERIC,2) AS total_debt
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY total_debt DESC;
+
+--QUERY 12: Top 10 countries with highest debt
+
+SELECT
+    country_name,
+    ROUND(SUM(debt_value)::NUMERIC,2) AS total_debt
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY total_debt DESC
+LIMIT 10;
+
+--QUERY 13: Average debt per country
+
+SELECT
+    country_name,
+    ROUND(AVG(debt_value)::NUMERIC,2) AS avg_debt
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY avg_debt DESC;
+
+--QUERY 14: Total debt for each indicator
+
+SELECT
+    series_name,
+    ROUND(SUM(debt_value)::NUMERIC,2) AS total_debt
+FROM vw_country_debt
+GROUP BY series_name
+ORDER BY total_debt DESC;
+
+--QUERY 15: Indicator contributing highest debt
+
+SELECT
+    series_name,
+    ROUND(SUM(debt_value)::NUMERIC,2) AS total_debt
+FROM vw_country_debt
+GROUP BY series_name
+ORDER BY total_debt DESC
+LIMIT 1;
+
+--QUERY 16: Country with lowest total debt
+
+SELECT
+    country_name,
+    ROUND(SUM(debt_value)::NUMERIC,2) AS total_debt
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY total_debt ASC
+LIMIT 1;
+
+--QUERY 17: Total debt by country and indicator
+
+SELECT
+    country_name,
+    series_name,
+    ROUND(SUM(debt_value)::NUMERIC,2) AS total_debt
+FROM vw_country_debt
+GROUP BY country_name, series_name
+ORDER BY total_debt DESC;
+
+--QUERY 18: Count indicators available per country
+
+SELECT
+    country_name,
+    COUNT(DISTINCT series_name) AS total_indicators
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY total_indicators DESC;
+
+--QUERY 19: Countries above global average debt
+
+SELECT
+    country_name,
+    SUM(debt_value) AS total_debt
+FROM vw_country_debt
+GROUP BY country_name
+HAVING SUM(debt_value) >
+(
+    SELECT AVG(country_total)
+    FROM
+    (
+        SELECT SUM(debt_value) AS country_total
+        FROM vw_country_debt
+        GROUP BY country_name
+    ) x
+);
+
+--QUERY 20: Rank countries by total debt
+
+SELECT
+    country_name,
+    SUM(debt_value) AS total_debt,
+    RANK() OVER(
+        ORDER BY SUM(debt_value) DESC
+    ) AS debt_rank
+FROM vw_country_debt
+GROUP BY country_name;
+
+--QUERY 21: Top 5 indicators contributing most debt
+
+SELECT
+    series_name,
+    SUM(debt_value) AS total_debt
+FROM vw_country_debt
+GROUP BY series_name
+ORDER BY total_debt DESC
+LIMIT 5;
+
+--QUERY 22: Percentage contribution of each country
+
+SELECT
+    country_name,
+    ROUND(
+        SUM(debt_value) * 100.0 /
+        (SELECT SUM(debt_value)
+        FROM vw_country_debt),
+        2
+    ) AS contribution_percentage
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY contribution_percentage DESC;
+
+--QUERY 23: Top 3 countries for each indicator
+
+SELECT *
+FROM
+(
+    SELECT
+        series_name,
+        country_name,
+        SUM(debt_value) AS total_debt,
+        RANK() OVER(
+            PARTITION BY series_name
+            ORDER BY SUM(debt_value) DESC
+        ) AS rank_no
+    FROM vw_country_debt
+    GROUP BY series_name, country_name
+) t
+WHERE rank_no <= 3;
+
+--QUERY 24: Difference between maximum and minimum debt
+
+SELECT
+    country_name,
+    MAX(debt_value) - MIN(debt_value) AS debt_difference
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY debt_difference DESC;
+
+--QUERY 25: Create View for Top 10 Countries
+
+CREATE OR REPLACE VIEW vw_top10_countries AS
+SELECT
+    country_name,
+    SUM(debt_value) AS total_debt
+FROM vw_country_debt
+GROUP BY country_name
+ORDER BY total_debt DESC
+LIMIT 10;
+
+--QUERY 26: Categorize Countries by Debt Level
+
+SELECT
+    country_name,
+    SUM(debt_value) AS total_debt,
+    CASE
+        WHEN SUM(debt_value) > 1000000000000
+            THEN 'High Debt'
+        WHEN SUM(debt_value) > 100000000000
+            THEN 'Medium Debt'
+        ELSE 'Low Debt'
+    END AS debt_category
+FROM vw_country_debt
+GROUP BY country_name;
+
+--QUERY 27: Cumulative Debt per Country
+
+SELECT
+    country_name,
+    year,
+    SUM(debt_value) AS yearly_debt,
+    SUM(SUM(debt_value))
+    OVER(
+        PARTITION BY country_name
+        ORDER BY year
+    ) AS cumulative_debt
+FROM vw_country_debt
+GROUP BY country_name, year;
+
+--QUERY 28: Indicators with average debt greater than overall average debt
+   
+SELECT
+    series_name,
+    AVG(debt_value) AS avg_debt
+FROM vw_country_debt
+GROUP BY series_name
+HAVING AVG(debt_value) >
+(
+    SELECT AVG(debt_value)
+    FROM vw_country_debt
+);
+
+--QUERY 29: Countries contributing more than 5% of global debt
+
+SELECT
+    country_name,
+    ROUND(
+        SUM(debt_value) * 100.0 /
+        (SELECT SUM(debt_value)
+         FROM vw_country_debt),
+        2
+    ) AS contribution_percentage
+FROM vw_country_debt
+GROUP BY country_name
+HAVING
+(
+    SUM(debt_value) * 100.0 /
+    (SELECT SUM(debt_value)
+     FROM vw_country_debt)
+) > 5;
+
+-- QUERY 30: Most dominant indicator for each country
+
+SELECT *
+FROM
+(
+    SELECT
+        country_name,
+        series_name,
+        SUM(debt_value) AS total_debt,
+        RANK() OVER(
+            PARTITION BY country_name
+            ORDER BY SUM(debt_value) DESC
+        ) AS rank_no
+    FROM vw_country_debt
+    GROUP BY country_name, series_name
+) t
+WHERE rank_no = 1;
+
+	
